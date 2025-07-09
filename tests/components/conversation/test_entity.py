@@ -3,8 +3,9 @@
 from unittest.mock import patch
 
 from homeassistant.components import conversation
+from homeassistant.components.conversation.entity import ConversationEntity
 from homeassistant.core import Context, HomeAssistant, State
-from homeassistant.helpers import intent
+from homeassistant.helpers import chat_session, intent, llm
 from homeassistant.setup import async_setup_component
 from homeassistant.util import dt as dt_util
 
@@ -52,3 +53,56 @@ async def test_state_set_and_restore(hass: HomeAssistant) -> None:
     assert state
     assert state.state == now.isoformat()
     assert state.context is context
+
+
+class TestEntity(ConversationEntity):
+    """Test conversation entity."""
+
+    @property
+    def supported_languages(self) -> list[str]:
+        """Return supported languages."""
+        return ["en"]
+
+    async def _async_handle_message(
+        self,
+        user_input: conversation.ConversationInput,
+        chat_log: conversation.ChatLog,
+    ) -> conversation.ConversationResult:
+        """Call the API."""
+        return self._async_get_result_from_chat_log(user_input, chat_log)
+
+
+async def test_get_result_from_chat_log(
+    hass: HomeAssistant,
+    mock_conversation_input: conversation.ConversationInput,
+) -> None:
+    """Test getting result from chat log."""
+    entity = TestEntity()
+    intent_response = intent.IntentResponse(language="en")
+
+    with (
+        chat_session.async_get_chat_session(hass) as session,
+        conversation.async_get_chat_log(
+            hass, session, mock_conversation_input
+        ) as chat_log,
+    ):
+        chat_log.content.extend(
+            [
+                conversation.ToolResultContent(
+                    agent_id="mock-agent-id",
+                    tool_call_id="mock-tool-call-id",
+                    tool_name="mock-tool-name",
+                    tool_result=llm.IntentResponseDict(intent_response),
+                ),
+                conversation.AssistantContent(
+                    agent_id="mock-agent-id",
+                    content="This is a response.",
+                ),
+            ]
+        )
+
+        result = await entity._async_handle_message(mock_conversation_input, chat_log)
+
+    # Original intent response is returned with speech set
+    assert result.response is intent_response
+    assert result.response.speech["plain"]["speech"] == "This is a response."
