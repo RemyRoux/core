@@ -725,12 +725,11 @@ class StatisticsSensor(SensorEntity):
 
     def _async_handle_new_state(
         self,
-        reported_state: State | None,
+        reported_state: State,
+        last_reported_timestamp: float,
     ) -> None:
         """Handle the sensor state changes."""
-        if (new_state := reported_state) is None:
-            return
-        self._add_state_to_queue(new_state)
+        self._add_state_to_queue(reported_state, last_reported_timestamp)
         self._async_purge_update_and_schedule()
 
         if self._preview_callback:
@@ -745,14 +744,18 @@ class StatisticsSensor(SensorEntity):
         self,
         event: Event[EventStateChangedData],
     ) -> None:
-        self._async_handle_new_state(event.data["new_state"])
+        if (new_state := event.data["new_state"]) is None:
+            return
+        self._async_handle_new_state(new_state, new_state.last_changed_timestamp)
 
     @callback
     def _async_stats_sensor_state_report_listener(
         self,
         event: Event[EventStateReportedData],
     ) -> None:
-        self._async_handle_new_state(event.data["new_state"])
+        self._async_handle_new_state(
+            event.data["new_state"], event.data["last_reported"].timestamp()
+        )
 
     async def _async_stats_sensor_startup(self) -> None:
         """Add listener and get recorded state.
@@ -783,7 +786,9 @@ class StatisticsSensor(SensorEntity):
         """Register callbacks."""
         await self._async_stats_sensor_startup()
 
-    def _add_state_to_queue(self, new_state: State) -> None:
+    def _add_state_to_queue(
+        self, new_state: State, last_reported_timestamp: float
+    ) -> None:
         """Add the state to the queue."""
 
         # Attention: it is not safe to store the new_state object,
@@ -803,7 +808,7 @@ class StatisticsSensor(SensorEntity):
                 self.states.append(new_state.state == "on")
             else:
                 self.states.append(float(new_state.state))
-            self.ages.append(new_state.last_reported_timestamp)
+            self.ages.append(last_reported_timestamp)
             self._attr_extra_state_attributes[STAT_SOURCE_VALUE_VALID] = True
         except ValueError:
             self._attr_extra_state_attributes[STAT_SOURCE_VALUE_VALID] = False
@@ -1060,7 +1065,7 @@ class StatisticsSensor(SensorEntity):
             self._fetch_states_from_database
         ):
             for state in reversed(states):
-                self._add_state_to_queue(state)
+                self._add_state_to_queue(state, state.last_reported_timestamp)
                 self._calculate_state_attributes(state)
         self._async_purge_update_and_schedule()
 

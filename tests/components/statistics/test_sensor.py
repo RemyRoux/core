@@ -1833,6 +1833,54 @@ async def test_average_linear_unevenly_timed(hass: HomeAssistant) -> None:
         )
 
 
+async def test_average_linear_constant(hass: HomeAssistant) -> None:
+    """Test the average_linear state characteristic with unevenly distributed values.
+
+    This also implicitly tests the correct timing of repeating values.
+    """
+    values_and_times = [[10.0, 2], [10.0, 1], [10.0, 1], [10.0, 2], [10.0, 1]]
+
+    current_time = dt_util.utcnow()
+
+    with (
+        freeze_time(current_time) as freezer,
+    ):
+        assert await async_setup_component(
+            hass,
+            "sensor",
+            {
+                "sensor": [
+                    {
+                        "platform": "statistics",
+                        "name": "test_sensor_average_linear",
+                        "entity_id": "sensor.test_monitored",
+                        "state_characteristic": "average_linear",
+                        "max_age": {"seconds": 10},
+                    },
+                ]
+            },
+        )
+        await hass.async_block_till_done()
+
+        for value_and_time in values_and_times:
+            hass.states.async_set(
+                "sensor.test_monitored",
+                str(value_and_time[0]),
+                {ATTR_UNIT_OF_MEASUREMENT: DEGREE},
+            )
+            current_time += timedelta(seconds=value_and_time[1])
+            freezer.move_to(current_time)
+
+        await hass.async_block_till_done()
+
+        state = hass.states.get("sensor.test_sensor_average_linear")
+        assert state is not None
+        assert state.state == "10.0", (
+            "value mismatch for characteristic 'sensor/average_linear' - "
+            f"assert {state.state} == 10.0"
+        )
+
+
 async def test_sensor_unit_gets_removed(hass: HomeAssistant) -> None:
     """Test when input lose its unit of measurement."""
     assert await async_setup_component(
