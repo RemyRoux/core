@@ -386,6 +386,20 @@ class WyomingAssistSatellite(WyomingSatelliteEntity, AssistSatelliteEntity):
                     # Older satellite clients will wait longer than necessary
                     _LOGGER.debug("Did not receive played event for announcement")
 
+    async def async_start_conversation(self) -> None:
+        """Signal the satellite to start a conversation by streaming audio."""
+        if self._client is None:
+            # Not connected
+            _LOGGER.warning("Not connected to satellite")
+            return
+
+        _LOGGER.debug("Requesting satellite to start conversation")
+        await self._client.write_event(
+            RunPipeline(
+                start_stage=PipelineStage.STT,
+            ).event()
+        )
+        
     # -------------------------------------------------------------------------
 
     def start_satellite(self) -> None:
